@@ -7,6 +7,7 @@ from datetime import datetime
 from pypdf import PdfReader
 from bs4 import BeautifulSoup
 from google import genai
+import ollama
 from pydantic import BaseModel, Field
 
 # User's Excel dropdown options
@@ -23,17 +24,13 @@ class JobExtraction(BaseModel):
     job_type: str = Field(description=f"The type of job. Must be one of: {', '.join(JOB_TYPES)}. Default to 'Full-Time' if unsure.")
     platform: str = Field(description=f"The platform the job is posted on. Must be one of: {', '.join(PLATFORMS)}. Default to 'Company Website' if unsure.")
     salary_range: str = Field(description="The salary range mentioned. If not explicitly mentioned anywhere, output strictly 'n/a'.")
-    key_requirements: str = Field(description="Analyze the posting and extract the top 4-5 most important keywords or skills. Output ONLY those 4-5 words as a comma-separated list. No bullet points or sentences.")
-    contact_recruiter: str = Field(description="Name or contact info of the recruiter if mentioned, otherwise 'n/a'.")
+    key_requirements: str = Field(description="Extract a MAXIMUM of 5 technical skills or keywords. Format exactly as a comma-separated list (e.g., 'Python, SQL, Docker'). DO NOT write full sentences.")
+    contact_recruiter: str = Field(description="Name of the human recruiter. Ignore web form artifacts like 'First Name * Last Name *'. If no specific human name is mentioned, strictly output 'n/a'.")
     priority: str = Field(description=f"Perceived priority based on requirements. Must be one of: {', '.join(PRIORITIES)}. Default to 'Medium'.")
 
 def sanitize_filename(name: str, max_len: int = 40) -> str:
     """Removes invalid characters, Excel-breaking brackets, and truncates length."""
-    # Strip illegal path chars AND square brackets (Excel hates brackets in links)
     clean = re.sub(r'[\\/*?:"<>|\[\]]', "", name).strip(" .")
-    
-    # Truncate to prevent 255-char Excel path limits
-    # We strip again at the end just in case the truncation leaves a trailing space
     return clean[:max_len].strip(" .")
 
 def extract_text_from_file_bytes(file_bytes: bytes, filename: str) -> str:
@@ -53,13 +50,9 @@ def extract_text_from_file_bytes(file_bytes: bytes, filename: str) -> str:
             
     elif ext in ['.mhtml', '.mht']:
         try:
-            # Parse the MHTML file as a MIME email message
             msg = email.message_from_bytes(file_bytes, policy=policy.default)
             html_content = ""
-            
-            # Walk through the multi-part structure
             for part in msg.walk():
-                # Target only the actual text or HTML payloads, ignoring images/css
                 if part.get_content_type() in ['text/html', 'text/plain']:
                     payload = part.get_payload(decode=True)
                     if payload:
@@ -69,7 +62,6 @@ def extract_text_from_file_bytes(file_bytes: bytes, filename: str) -> str:
                         except LookupError:
                             html_content += payload.decode('utf-8', errors='ignore') + " "
                             
-            # Pass the isolated HTML payload to BeautifulSoup for text extraction
             soup = BeautifulSoup(html_content, 'html.parser')
             return soup.get_text(separator=' ', strip=True)
         except Exception as e:
@@ -85,17 +77,25 @@ def extract_text_from_file_bytes(file_bytes: bytes, filename: str) -> str:
             return ""
             
     else:
-        # Fallback for plain text or unknown
         try:
             return file_bytes.decode('utf-8', errors='ignore')
         except Exception as e:
             print(f"Fallback extraction error: {e}")
             return ""
 
-def extract_job_data_gemini(text: str, api_key: str, job_url: str = "", models: list = None, mock_mode: bool = False) -> JobExtraction:
-    """Extracts job data using Gemini API via Structured Outputs with automatic model fallback."""
+def _ensure_local_model(model_name: str):
+    """Cold-start handler: checks if the model exists locally, pulls it if not."""
+    try:
+        existing_models = [m['name'] for m in ollama.list().get('models', [])]
+        if not any(model_name in m for m in existing_models):
+            print(f"Downloading {model_name} locally... This may take a few minutes.")
+            ollama.pull(model_name)
+    except Exception as e:
+        print(f"Ollama connection/pull failed: {e}")
 
-    # 🛑 MOCK BYPASS: Returns fake data instantly for UI testing
+def extract_job_data(text: str, api_key: str, job_url: str = "", models: list = None, mock_mode: bool = False, engine: str = "Gemini", fallback_to_local: bool = True, local_model: str = "qwen2.5:7b") -> JobExtraction:
+    """Extracts job data with unified routing between Gemini API and Local Ollama."""
+    
     if mock_mode:
         import time
         return JobExtraction(
@@ -110,12 +110,6 @@ def extract_job_data_gemini(text: str, api_key: str, job_url: str = "", models: 
             priority="High"
         )
     
-    client = genai.Client(api_key=api_key)
-    
-    if not models:
-        models = ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-1.5-flash']
-        
-    # Truncate text to fit within reasonable limits for Gemini context
     text = text[:150000] 
     
     prompt = f"""
@@ -131,31 +125,52 @@ def extract_job_data_gemini(text: str, api_key: str, job_url: str = "", models: 
     """
     
     last_error = None
-    for model_name in models:
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=prompt,
-                config={
-                    'response_mime_type': 'application/json',
-                    'response_schema': JobExtraction,
-                    'temperature': 0.1,
-                },
-            )
-            return JobExtraction.model_validate_json(response.text)
-        except Exception as e:
-            print(f"Model {model_name} failed: {e}")
-            last_error = e
-            continue
-            
-    raise Exception(f"All selected models failed. Last error: {last_error}")
 
-def find_or_create_company_folder(base_dir: str, company_name: str, api_key: str, models: list = None) -> str:
-    """
-    Intelligently finds an existing company folder using LLM-powered fuzzy matching with model fallback.
-    If 'Bank of Montreal' is passed and 'BMO' exists, it intelligently matches it.
-    If nothing matches, it returns a new sanitized folder path.
-    """
+    # 1. Cloud Execution (Gemini)
+    if engine == "Gemini" and api_key:
+        client = genai.Client(api_key=api_key)
+        if not models:
+            models = ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-1.5-flash']
+            
+        for model_name in models:
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config={
+                        'response_mime_type': 'application/json',
+                        'response_schema': JobExtraction,
+                        'temperature': 0.1,
+                    },
+                )
+                return JobExtraction.model_validate_json(response.text)
+            except Exception as e:
+                print(f"Gemini {model_name} failed: {e}")
+                last_error = e
+                continue
+                
+        if not fallback_to_local:
+            raise Exception(f"All Gemini models failed. Last error: {last_error}")
+        else:
+            print("Gemini API failed. Falling back to local LLM...")
+
+    # 2. Local Execution (Ollama Fallback or Native)
+    _ensure_local_model(local_model)
+    
+    try:
+        response = ollama.chat(
+            model=local_model,
+            messages=[{'role': 'user', 'content': prompt}],
+            # Force Ollama to strictly adhere to the Pydantic JSON schema
+            format=JobExtraction.model_json_schema(),
+            options={'temperature': 0.1}
+        )
+        return JobExtraction.model_validate_json(response['message']['content'])
+    except Exception as e:
+        raise Exception(f"Local LLM extraction failed. Last error: {e}")
+
+def find_or_create_company_folder(base_dir: str, company_name: str, api_key: str, models: list = None, engine: str = "Gemini", fallback_to_local: bool = True, local_model: str = "qwen2.5:7b") -> str:
+    """Finds an existing company folder using LLM-powered fuzzy matching with local fallback."""
     if not os.path.exists(base_dir):
         return os.path.join(base_dir, sanitize_filename(company_name))
         
@@ -164,8 +179,6 @@ def find_or_create_company_folder(base_dir: str, company_name: str, api_key: str
     if not existing_folders:
         return os.path.join(base_dir, sanitize_filename(company_name))
         
-    # Use Gemini to intelligently match acronyms/alternative names
-    client = genai.Client(api_key=api_key)
     prompt = f"""
     I am organizing job application folders. The new company I am applying to is "{company_name}".
     Here is a list of my existing company folders:
@@ -176,34 +189,51 @@ def find_or_create_company_folder(base_dir: str, company_name: str, api_key: str
     If YES, output ONLY the exact name of the existing folder from the list.
     If NO, output ONLY "NONE".
     """
-    
-    if not models:
-        models = ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-1.5-flash']
-        
-    for model_name in models:
+
+    match = None
+
+    # Try Gemini First
+    if engine == "Gemini" and api_key:
+        client = genai.Client(api_key=api_key)
+        if not models:
+            models = ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-1.5-flash']
+            
+        for model_name in models:
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config={'temperature': 0.0}
+                )
+                match_text = response.text.strip()
+                if match_text in existing_folders:
+                    return os.path.join(base_dir, match_text)
+                match = match_text
+                break 
+            except Exception as e:
+                print(f"Gemini {model_name} failed for folder matching: {e}")
+                continue
+                
+    # Fallback to Local LLM
+    if (not match or engine == "Ollama") and fallback_to_local:
+        _ensure_local_model(local_model)
         try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=prompt,
-                config={'temperature': 0.0}
+            response = ollama.chat(
+                model=local_model,
+                messages=[{'role': 'user', 'content': prompt}],
+                options={'temperature': 0.0}
             )
-            match = response.text.strip()
-            # Ensure the LLM didn't hallucinate a folder name
-            if match in existing_folders:
-                return os.path.join(base_dir, match)
-            break # LLM succeeded but no match found, don't fallback to other models
+            match_text = response['message']['content'].strip()
+            if match_text in existing_folders:
+                return os.path.join(base_dir, match_text)
         except Exception as e:
-            print(f"Model {model_name} failed for folder matching: {e}")
-            continue
+            print(f"Local LLM failed for folder matching: {e}")
         
-    # Fallback to simple substring match if LLM fails
+    # Standard string matching as final fallback
     company_lower = company_name.lower()
     for folder in existing_folders:
         folder_lower = folder.lower()
         if (folder_lower in company_lower and len(folder_lower) > 2) or (company_lower in folder_lower and len(company_lower) > 2):
             return os.path.join(base_dir, folder)
             
-    # No match found, create new
     return os.path.join(base_dir, sanitize_filename(company_name))
-
-
