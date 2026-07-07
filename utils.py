@@ -92,8 +92,24 @@ def extract_text_from_file_bytes(file_bytes: bytes, filename: str) -> str:
             print(f"Fallback extraction error: {e}")
             return ""
 
-def extract_job_data_gemini(text: str, api_key: str, job_url: str = "", models: list = None) -> JobExtraction:
+def extract_job_data_gemini(text: str, api_key: str, job_url: str = "", models: list = None, mock_mode: bool = False) -> JobExtraction:
     """Extracts job data using Gemini API via Structured Outputs with automatic model fallback."""
+
+    # 🛑 MOCK BYPASS: Returns fake data instantly for UI testing
+    if mock_mode:
+        import time
+        return JobExtraction(
+            company="MockTech Industries",
+            role_title="Senior Mock Developer",
+            location="Remote",
+            job_type="Full-Time",
+            platform="LinkedIn" if "linkedin" in job_url.lower() else "Company Website",
+            salary_range="$120,000 - $140,000",
+            key_requirements="Python, Streamlit, Docker, SQLite, REST APIs",
+            contact_recruiter="Jane Doe",
+            priority="High"
+        )
+    
     client = genai.Client(api_key=api_key)
     
     if not models:
@@ -189,45 +205,5 @@ def find_or_create_company_folder(base_dir: str, company_name: str, api_key: str
             
     # No match found, create new
     return os.path.join(base_dir, sanitize_filename(company_name))
-
-def generate_tsv_row(data: dict, url: str, posting_path: str, resume_path: str) -> str:
-    """
-    Generates a perfectly copyable TSV row for Excel starting from the Company column.
-    Uses `=HYPERLINK("path", "Text")` for links.
-    """
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    
-    # Escape quotes in paths for the Excel formula
-    safe_posting_path = posting_path.replace('"', '""')
-    safe_resume_path = resume_path.replace('"', '""')
-    safe_url = url.replace('"', '""')
-    
-    link_formula = f'=HYPERLINK("{safe_url}", "🔗 Link")' if url else ""
-    posting_formula = f'=HYPERLINK("{safe_posting_path}", "📄 Open Posting")' if posting_path else ""
-    resume_formula = f'=HYPERLINK("{safe_resume_path}", "📄 Resume")' if resume_path else ""
-    
-    row_elements = [
-        data.get('company', ''),                    # Company
-        data.get('role_title', ''),                 # Role / Title
-        data.get('job_type', ''),                   # Job Type
-        data.get('platform', ''),                   # Platform
-        link_formula,                               # Job Posting (URL)
-        posting_formula,                            # Job Posting PDF (Link)
-        resume_formula,                             # Resume Version (Link)
-        data.get('cover_letter', 'No'),             # Cover Letter?
-        data.get('contact_recruiter', ''),          # Contact / Recruiter
-        data.get('status', 'Applied'),              # Status
-        today_str,                                  # Last Update
-        '',                                         # Next Follow-Up
-        '',                                         # Interview Date
-        '',                                         # Interview Type
-        data.get('priority', 'Medium'),             # Priority
-        data.get('salary_range', 'n/a'),            # Salary Range
-        data.get('key_requirements', ''),           # Key Requirements
-        data.get('notes', '')                       # Notes
-    ]
-    
-    # Join with tabs to create a TSV row
-    return "\t".join([str(item).replace('\t', ' ') for item in row_elements])
 
 
