@@ -7,12 +7,36 @@ wheels/
 *.egg-info
 
 # Virtual environments
-.venv
+.venv/
+venv/
+ENV/
 
-#Environment File
+# Environment Files & Secrets (Bulletproofed)
 .env
+.env.*
+*.local
 
+# Database & Scraped Files
+tracker.db
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+jobs/
+data/
+
+# Custom Scripts
 graphify-out/
 launcher.vbs
 run_app.bat
-tracker.db
+
+# OS Generated Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

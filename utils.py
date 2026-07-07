@@ -10,7 +10,6 @@ from google import genai
 import ollama
 from pydantic import BaseModel, Field
 
-# User's Excel dropdown options
 PLATFORMS = ["LinkedIn", "Indeed", "Glassdoor", "Company Website", "Workday Portal", "Greenhouse", "AngelList / Wellfound", "Referral", "Job Fair", "Recruiter (Outbound)", "Other"]
 JOB_TYPES = ["Full-Time", "Part-Time", "Contract", "Contract-to-Hire", "Co-op / Internship", "Freelance"]
 COVER_LETTERS = ["Yes", "No", "Tailored Letter", "Generic Letter"]
@@ -113,14 +112,19 @@ def extract_job_data(text: str, api_key: str, job_url: str = "", models: list = 
     text = text[:150000] 
     
     prompt = f"""
-    Analyze the following job posting text and extract the required fields.
-    Pay close attention to the instructions for each field.
-    If the Salary Range is not explicitly stated in the text, you MUST output 'n/a'. Do not guess or infer.
+    You are an expert technical recruiter AI. Extract the requested job details from the raw text below.
     
+    CRITICAL WARNING: The text is raw scraped HTML. You MUST IGNORE all website navigation menus, footer links, cookie policies, and generic web forms (e.g., "First Name *", "Last Name *", "Email *", "Submit Resume"). Focus ONLY on the actual job description content.
+
+    STRICT FIELD RULES:
+    1. 'key_requirements': You are forbidden from writing sentences. You MUST output a simple, comma-separated list of a MAXIMUM of 5 technical skills or keywords (e.g., "Python, Docker, AWS, React"). 
+    2. 'contact_recruiter': ONLY output a specific human name if one is explicitly mentioned as the hiring manager or recruiter. If you see generic form fields or "First Name *", you MUST output "n/a".
+    3. 'salary_range': If explicit salary numbers are not present, output strictly "n/a". Do not guess.
+
     Context Information:
-    Job URL: {job_url if job_url else 'None provided'} (Use this to confidently determine the 'platform' field).
+    Job URL: {job_url if job_url else 'None provided'} (Use this to determine the 'platform').
     
-    Job Posting Text:
+    Raw Job Posting Text:
     {text}
     """
     
@@ -163,7 +167,7 @@ def extract_job_data(text: str, api_key: str, job_url: str = "", models: list = 
             messages=[{'role': 'user', 'content': prompt}],
             # Force Ollama to strictly adhere to the Pydantic JSON schema
             format=JobExtraction.model_json_schema(),
-            options={'temperature': 0.1}
+            options={'temperature': 0.0}
         )
         return JobExtraction.model_validate_json(response['message']['content'])
     except Exception as e:

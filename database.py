@@ -3,8 +3,8 @@ import pandas as pd
 from datetime import datetime
 import os
 
-# Default database name - when Dockerized, this should be mapped to a persistent volume
-DB_NAME = "tracker.db"
+# Default database name - reads from Docker environment if available
+DB_NAME = os.environ.get("DATABASE_PATH", "data/tracker.db")
 
 def init_db(db_path: str = DB_NAME) -> None:
     """
@@ -99,13 +99,26 @@ def update_application(app_id: int, updates: dict, db_path: str = DB_NAME) -> No
     if not updates:
         return
 
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    updates['last_updated'] = now_str
+    # SECURITY: Whitelist allowed columns to prevent SQL injection via dynamic keys
+    allowed_columns = {
+        "company", "role_title", "location", "job_type", "platform", 
+        "job_url", "posting_path", "resume_path", "cover_letter", 
+        "contact_recruiter", "status", "priority", "salary_range", 
+        "key_requirements", "notes"
+    }
 
-    # Dynamically build the SET clause based on the passed dictionary
-    set_clause = ", ".join([f"{key} = ?" for key in updates.keys()])
-    values = list(updates.values())
-    values.append(app_id) # For the WHERE clause
+    # Filter out any malicious or accidental keys
+    safe_updates = {k: v for k, v in updates.items() if k in allowed_columns}
+    
+    if not safe_updates:
+        return
+
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    safe_updates['last_updated'] = now_str
+
+    set_clause = ", ".join([f"{key} = ?" for key in safe_updates.keys()])
+    values = list(safe_updates.values())
+    values.append(app_id) 
 
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()

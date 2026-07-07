@@ -1,0 +1,31 @@
+# Python build and cache artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Local virtual environments (Crucial to prevent cross-OS corruption)
+.venv/
+venv/
+ENV/
+
+# Secrets and Local Configurations
+.env
+.env.*
+*.local
+
+# Local Databases and SQLite files
+*.db
+*.sqlite
+*.sqlite3
+
+# OS specific files (Windows thumbnail caches, etc.)
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Version Control
+.git/
+.gitignore

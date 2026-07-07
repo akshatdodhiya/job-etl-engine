@@ -1,0 +1,66 @@
+services:
+  # ---------------------------------------------------------
+  # SERVICE 1: The Streamlit Web Application
+  # ---------------------------------------------------------
+  web-app:
+    build: .
+    container_name: job-tracker-ui
+    ports:
+      - "8501:8501" # Maps your browser's localhost:8501 to the container's port 8501
+    environment:
+      # Tells the Python ollama library where to find the local engine
+      - OLLAMA_HOST=http://ollama:11434
+      - DATABASE_PATH=/app/data/tracker.db
+      # --- STREAMLIT PRODUCTION CONFIGURATION ---
+      - STREAMLIT_SERVER_HEADLESS=true
+      - STREAMLIT_CLIENT_TOOLBAR_MODE=viewer 
+      - STREAMLIT_CLIENT_SHOW_ERROR_DETAILS=false
+      - STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+    volumes:
+      # Syncs your local project folder into the container in real-time.
+      # This lets you edit Python files and see updates without rebuilding the image.
+      - .:/app
+      - /app/.venv
+      - db_storage:/app/data
+      - jobs_storage:/app/jobs
+    depends_on:
+      - ollama # Ensures the LLM engine starts before the UI
+    networks:
+      - app-network
+
+  # ---------------------------------------------------------
+  # SERVICE 2: The Local LLM Engine (Ollama)
+  # ---------------------------------------------------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama-backend
+    ports:
+      - "11434:11434" # Optional: Exposes Ollama so you can query it outside the app if you want
+    volumes:
+      # This is CRITICAL. It saves downloaded models (like qwen2.5:7b) to a persistent volume.
+      # Without this, you would have to redownload the 4.5GB model every time Docker restarts.
+      - ollama_storage:/root/.ollama
+    networks:
+      - app-network
+
+    # --- NVIDIA GPU PASSTHROUGH (Uncomment if you have an NVIDIA GPU) ---
+    # This block allows the Docker container to access your physical graphics card.
+    # It requires the 'NVIDIA Container Toolkit' to be installed on your host OS.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+# Defines the persistent hard drive space for Ollama models
+volumes:
+  ollama_storage:
+  db_storage:
+  jobs_storage:
+
+# Defines the isolated bridge network the two containers use to talk to each other
+networks:
+  app-network:
+    driver: bridge

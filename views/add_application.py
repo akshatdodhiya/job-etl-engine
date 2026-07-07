@@ -4,7 +4,10 @@ from datetime import datetime
 import utils
 import database
 
-def render(mock_mode, api_key, base_job_dir, selected_models):
+def render(mock_mode, api_key, base_job_dir, selected_models, engine_str, fallback_enabled):
+    st.title("💼 Job Application Tracker")
+    st.markdown("Extract, review, and save job postings using AI.")
+    
     if st.session_state.save_success:
         st.success("Successfully saved to database!")
         st.balloons()
@@ -21,9 +24,8 @@ def render(mock_mode, api_key, base_job_dir, selected_models):
             key=f"job_url_input_{st.session_state.uploader_key}"
         )
 
-        st.write("") # Minor spacer
+        st.write("") 
         
-        # UX WIN: Pull the toggle above the grid to maintain strict vertical alignment in the columns
         cl_mode = st.radio(
             "Cover Letter Format", 
             ["📁 Upload File", "✍️ Paste Text"], 
@@ -31,7 +33,6 @@ def render(mock_mode, api_key, base_job_dir, selected_models):
             key=f"cl_mode_{st.session_state.uploader_key}"
         )
 
-        # Perfectly symmetric 3-column grid
         col1, col2, col3 = st.columns(3)
         with col1:
             posting_file = st.file_uploader(
@@ -55,7 +56,6 @@ def render(mock_mode, api_key, base_job_dir, selected_models):
                     key=f"cl_file_{st.session_state.uploader_key}"
                 )
             else:
-                # height=110 roughly matches the visual height of a standard Streamlit file dropzone
                 cl_text = st.text_area(
                     "Paste Cover Letter (Optional)", 
                     height=110, 
@@ -67,8 +67,8 @@ def render(mock_mode, api_key, base_job_dir, selected_models):
         extract_btn = st.button("🚀 Extract Data", width="stretch")
 
     if extract_btn:
-        if not mock_mode and not api_key:
-            st.error("Please provide a Gemini API Key in the sidebar, or enable Dev Mode.")
+        if not mock_mode and engine_str == "Gemini" and not api_key:
+            st.error("Please provide a Gemini API Key, or switch to the Local Ollama engine.")
         elif not posting_file:
             st.warning("Please upload the Job Posting file to extract data from.")
         else:
@@ -83,7 +83,6 @@ def render(mock_mode, api_key, base_job_dir, selected_models):
             ext_post = os.path.splitext(posting_file.name)[1]
             st.session_state.uploaded_posting_name = f"Listing{ext_post}"
             
-            # Lock in Cover Letter payload
             if "Upload" in cl_mode and cl_file:
                 cl_ext = os.path.splitext(cl_file.name)[1]
                 st.session_state.cover_letter_payload = (cl_file.getvalue(), f"CoverLetter{cl_ext}")
@@ -98,11 +97,17 @@ def render(mock_mode, api_key, base_job_dir, selected_models):
                     st.error("Could not extract any text from the provided file.")
                     st.stop()
                     
-            with st.spinner("Analyzing text with AI..."):
+            with st.spinner(f"Analyzing text with {engine_str}..."):
                 try:
-                    extracted = utils.extract_job_data_gemini(
-                        text=page_text, api_key=api_key, job_url=st.session_state.job_url,
-                        models=selected_models, mock_mode=mock_mode
+                    # Pass the explicit fallback flag to your backend utility
+                    extracted = utils.extract_job_data(
+                        text=page_text, 
+                        api_key=api_key, 
+                        job_url=st.session_state.job_url,
+                        models=selected_models, 
+                        mock_mode=mock_mode,
+                        engine=engine_str,
+                        fallback_to_local=fallback_enabled
                     )
                     st.session_state.extracted_data = extracted.model_dump()
                     st.success("Extraction successful! Please review the data below.")
@@ -153,7 +158,10 @@ def render(mock_mode, api_key, base_job_dir, selected_models):
                 review_container.empty()
                 
                 with st.spinner("Saving files and generating DB record..."):
-                    company_dir = utils.find_or_create_company_folder(base_job_dir, company, api_key, models=selected_models)
+                    company_dir = utils.find_or_create_company_folder(
+                        base_job_dir, company, api_key, 
+                        models=selected_models, engine=engine_str
+                    )
                     safe_role = utils.sanitize_filename(role)
                     target_dir = os.path.join(company_dir, safe_role)
                     
