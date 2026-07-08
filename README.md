@@ -1,5 +1,7 @@
 # Job-ETL Engine
 
+![Job-ETL Engine Demo Pipeline](assets/demo.gif)
+
 An AI-powered, privacy-first local web application designed to automate the extraction, tracking, and management of job applications. It uses a dual-engine LLM architecture to parse raw job descriptions from PDFs and web pages directly into a structured SQLite database.
 
 ## Features
