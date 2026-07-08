@@ -93,7 +93,7 @@ with st.sidebar:
     st.divider()
     
     st.header("⚙️ Engine Selection")
-    mock_mode = st.toggle("🛠️ Dev Mode (Mock API)", value=False, help="Use fake data to save API limits.")
+    # mock_mode = st.toggle("🛠️ Dev Mode (Mock API)", value=False, help="Use fake data to save API limits.")
     
     engine_choice = st.radio(
         "Processing Engine", 
@@ -167,6 +167,6 @@ with st.sidebar:
 if app_mode == "➕ Add Application":
     engine_str = "Gemini" if "Gemini" in engine_choice else "Ollama"
     # Pass the dynamically managed current_api_key down to the view
-    add_application.render(mock_mode, current_api_key, base_job_dir, selected_models, engine_str, fallback_enabled)
+    add_application.render(current_api_key, base_job_dir, selected_models, engine_str, fallback_enabled, mock_mode=False)
 elif app_mode == "📊 Dashboard":
     dashboard.render()

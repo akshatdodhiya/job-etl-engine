@@ -4,7 +4,7 @@ from datetime import datetime
 import utils
 import database
 
-def render(mock_mode, api_key, base_job_dir, selected_models, engine_str, fallback_enabled):
+def render(api_key, base_job_dir, selected_models, engine_str, fallback_enabled, mock_mode: bool = False):
     st.title("⚙️ Job-ETL Engine")
     st.markdown("Automated ingestion, AI-driven transformation, and local database loading for unstructured job postings.")
     
