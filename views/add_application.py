@@ -5,8 +5,8 @@ import utils
 import database
 
 def render(mock_mode, api_key, base_job_dir, selected_models, engine_str, fallback_enabled):
-    st.title("💼 Job Application Tracker")
-    st.markdown("Extract, review, and save job postings using AI.")
+    st.title("⚙️ Job-ETL Engine")
+    st.markdown("Automated ingestion, AI-driven transformation, and local database loading for unstructured job postings.")
     
     if st.session_state.save_success:
         st.success("Successfully saved to database!")

@@ -12,7 +12,7 @@ ENV_PATH = "/app/data/.env" if os.path.exists("/app/data") else ".env"
 # Ensure database exists on startup
 database.init_db()
 
-st.set_page_config(page_title="Job Application Tracker", page_icon="💼", layout="wide")
+st.set_page_config(page_title="Job-ETL Engine", page_icon="⚙️", layout="wide")
 
 # Custom CSS for modern look & Navigation UI
 st.markdown("""

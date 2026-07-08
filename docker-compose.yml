@@ -46,13 +46,13 @@ services:
     # --- NVIDIA GPU PASSTHROUGH (Uncomment if you have an NVIDIA GPU) ---
     # This block allows the Docker container to access your physical graphics card.
     # It requires the 'NVIDIA Container Toolkit' to be installed on your host OS.
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
 
 # Defines the persistent hard drive space for Ollama models
 volumes:
