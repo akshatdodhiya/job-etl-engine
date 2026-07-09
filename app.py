@@ -147,14 +147,11 @@ with st.sidebar:
                     st.session_state.show_api_input = False
                     st.rerun()
     else:
-        st.info("🧠 Running local model: **qwen2.5:7b**\n\n*Note: First run triggers an automatic download (~4.5GB).*")
+        st.info("🧠 Running local model: **qwen2.5:7b-instruct-q3_K_M**\n\n*Note: First run triggers an automatic download (~4.5GB).*")
 
     st.divider()
     
     with st.expander("⚙️ Advanced Settings", expanded=False):
-        base_job_dir = st.text_input("Jobs Directory Base", value=r"/app/jobs", help="Base directory for storing job postings, resumes, and cover letters. Must be writable.")
-        st.caption("Mapped to Docker volume.", help="⚠️ Do not modify unless you know what you're doing.")
-        
         selected_models = st.multiselect(
             "Model Fallback List",
             options=['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-1.5-flash'],
@@ -166,7 +163,6 @@ with st.sidebar:
 # ==========================================
 if app_mode == "➕ Add Application":
     engine_str = "Gemini" if "Gemini" in engine_choice else "Ollama"
-    # Pass the dynamically managed current_api_key down to the view
-    add_application.render(current_api_key, base_job_dir, selected_models, engine_str, fallback_enabled, mock_mode=False)
+    add_application.render(current_api_key, "/app/jobs", selected_models, engine_str, fallback_enabled, mock_mode=False)
 elif app_mode == "📊 Dashboard":
     dashboard.render()
