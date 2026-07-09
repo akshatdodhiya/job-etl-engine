@@ -5,10 +5,12 @@ services:
   web-app:
     build: .
     container_name: job-tracker-ui
+    restart: unless-stopped
     ports:
-      - "8501:8501" # Maps your browser's localhost:8501 to the container's port 8501
+      - "8501:8501" # Maps browser's localhost:8501 to the container's port 8501
     environment:
-      # Tells the Python ollama library where to find the local engine
+      - HOST_STORAGE_DIR=${HOST_STORAGE_DIR}
+      - TZ=${TZ:-UTC}
       - OLLAMA_HOST=http://ollama:11434
       - DATABASE_PATH=/app/data/tracker.db
       # --- STREAMLIT PRODUCTION CONFIGURATION ---
@@ -17,14 +19,12 @@ services:
       - STREAMLIT_CLIENT_SHOW_ERROR_DETAILS=false
       - STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
     volumes:
-      # Syncs your local project folder into the container in real-time.
-      # This lets you edit Python files and see updates without rebuilding the image.
       - .:/app
       - /app/.venv
       - db_storage:/app/data
-      - jobs_storage:/app/jobs
+      - ${HOST_STORAGE_DIR:-./jobs}:/app/jobs
     depends_on:
-      - ollama # Ensures the LLM engine starts before the UI
+      - ollama
     networks:
       - app-network
 
@@ -34,6 +34,7 @@ services:
   ollama:
     image: ollama/ollama:latest
     container_name: ollama-backend
+    restart: unless-stopped
     ports:
       - "11434:11434" # Optional: Exposes Ollama so you can query it outside the app if you want
     volumes:
@@ -58,7 +59,6 @@ services:
 volumes:
   ollama_storage:
   db_storage:
-  jobs_storage:
 
 # Defines the isolated bridge network the two containers use to talk to each other
 networks:
