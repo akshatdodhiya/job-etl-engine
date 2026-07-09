@@ -6,7 +6,7 @@ An AI-powered, privacy-first local web application designed to automate the extr
 
 ## Features
 
-* **Dual-Engine AI Routing:** Seamlessly toggle between Google's Gemini API (Cloud) and Ollama (Local) for data extraction. 
+* **Dual-Engine AI Routing:** Seamlessly toggle between Google's Gemini API (Cloud) and Ollama (Local) for data extraction.
 * **Automatic Fallback:** If the cloud API hits a rate limit or network error, the system automatically routes the extraction task to the local LLM.
 * **Local-First Privacy:** Runs a local `qwen2.5:7b` model via Ollama. Job descriptions, resumes, and cover letters never have to leave your machine.
 * **Structured Output:** Enforces strict JSON schemas using Pydantic, ensuring the LLM outputs clean, database-ready fields and ignores web-scraping artifacts.
@@ -23,28 +23,42 @@ An AI-powered, privacy-first local web application designed to automate the extr
 | **Cloud AI** | Google GenAI SDK | High-speed cloud inference via Gemini models. |
 | **Local AI** | Ollama | Local inference engine running `qwen2.5:7b`. |
 | **Database** | SQLite & Pandas | Lightweight, serverless relational database and data manipulation. |
-| **Infrastructure**| Docker & `uv` | Containerized orchestration and lightning-fast dependency resolution. |
+| **Infrastructure** | Docker & `uv` | Containerized orchestration and lightning-fast dependency resolution. |
 
 ## Prerequisites
 
 Ensure you have the following installed on your host machine:
+
 1. [Docker Desktop](https://www.docker.com/products/docker-desktop/) (WSL2 enabled if on Windows)
 2. *Optional:* [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) (To utilize a local GPU for Ollama)
 
 ## Quick Start
 
 1. **Clone the repository:**
+
    ```bash
    git clone https://github.com/akshatdodhiya/job-etl-engine.git
    cd job-etl-engine
    ```
 
-2. **Start the containers:**
+2. **Configure your environment:**
+   Create a file named `.env` in the root directory. Define where you want your files saved and set your local timezone to ensure accurate application tracking timestamps.
+
+   ```text
+   HOST_STORAGE_DIR=C:\Jobs\SDE
+   TZ=America/Toronto
+   ```
+
+   * Note for `HOST_STORAGE_DIR`: If skipped, the application will default to creating a `jobs/` folder inside the project root directory.
+   * Note for `TZ`: Uses standard IANA timezone database names (e.g., `America/New_York`, `Europe/London`, `Asia/Kolkata`). Defaults to `UTC` if omitted.
+
+3. **Start the containers:**
+
    ```bash
    docker compose up --build -d
    ```
 
-3. **Access the Application:**
+4. **Access the Application:**
    Open your browser and navigate to: `http://localhost:8501`
 
 *Note: On your first execution using the Local Engine, the system will autonomously download the `qwen2.5:7b` model (~4.5GB). This will take a few minutes depending on your network connection.*
@@ -52,11 +66,14 @@ Ensure you have the following installed on your host machine:
 ## Usage Guide
 
 ### 1. Engine Configuration
+
 Navigate to the sidebar to select your Processing Engine.
+
 * **Gemini (Cloud):** Requires an API key. Entering a key securely saves it to the isolated Docker volume. You can toggle the "Auto-fallback" option to reroute to Ollama if the API fails.
 * **Ollama (Local):** Runs entirely on your hardware. No API key required.
 
 ### 2. Adding an Application
+
 1. Paste the URL of the job posting.
 2. Upload the Job Posting file (PDF, HTML, or MHTML).
 3. Optionally upload your Resume and Cover Letter.
@@ -64,6 +81,7 @@ Navigate to the sidebar to select your Processing Engine.
 5. Verify the extracted fields, make any necessary edits, and click **Save to Database**. The application will automatically create an organized folder structure for the files.
 
 ### 3. Dashboard Management
+
 Navigate to the Dashboard tab to view your structured data. You can edit cells directly in the table to update interview statuses, add notes, or flag priorities. Click "Export CSV" to download a local copy of your data.
 
 ## Architecture & Volume Management
@@ -73,13 +91,14 @@ To ensure the host machine's environment and local files are never corrupted by 
 | Volume Mount | Purpose |
 | :--- | :--- |
 | `db_storage` | Isolates the `tracker.db` SQLite database and the runtime `.env` file containing the API key. |
-| `jobs_storage` | Persistently stores the scraped job postings, resumes, and cover letters safely inside Docker. |
+| `${HOST_STORAGE_DIR}` | A dynamic bind mount that saves your scraped job postings and resumes directly to your physical hard drive for easy access. |
 | `ollama_storage` | Prevents Ollama from redownloading the 4.5GB LLM weights every time the container restarts. |
 | `/app/.venv` | An anonymous volume preventing the container's Linux binaries from overwriting host environments. |
 
 ## Author
 
-**Akshat Dodhiya**
+### Akshat Dodhiya
+
 * Website: [akshat.codes](https://akshat.codes)
 
 ## License

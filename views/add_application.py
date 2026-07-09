@@ -191,11 +191,28 @@ def render(api_key, base_job_dir, selected_models, engine_str, fallback_enabled,
                         final_cl_path = os.path.join(target_dir, cl_name)
                         with open(final_cl_path, "wb") as f: f.write(cl_bytes)
                             
+                    # --- PATH TRANSLATION FOR THE DATABASE ---
+                    # The files are physically written to the Docker paths above. 
+                    # Now we translate those paths into Windows paths for the UI/DB.
+                    
+                    db_posting_path = utils.translate_to_windows_path(final_posting_path)
+                    
+                    db_resume_path = ""
+                    if final_resume_path:
+                        db_resume_path = utils.translate_to_windows_path(final_resume_path)
+                        
+                    db_cl_path = "No"
+                    if final_cl_path != "No":
+                        db_cl_path = utils.translate_to_windows_path(final_cl_path)
+
+                    # Create the final payload using the translated Windows paths
                     final_data = {
                         "company": company, "role_title": role, "location": loc, "job_type": job_type,
                         "platform": platform, "job_url": st.session_state.job_url,
-                        "posting_path": final_posting_path, "resume_path": final_resume_path,
-                        "cover_letter": final_cl_path, "contact_recruiter": recruiter,
+                        "posting_path": db_posting_path, 
+                        "resume_path": db_resume_path,
+                        "cover_letter": db_cl_path, 
+                        "contact_recruiter": recruiter,
                         "status": status, "priority": priority, "salary_range": salary,
                         "key_requirements": requirements, "notes": notes
                     }

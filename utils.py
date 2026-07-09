@@ -241,3 +241,17 @@ def find_or_create_company_folder(base_dir: str, company_name: str, api_key: str
             return os.path.join(base_dir, folder)
             
     return os.path.join(base_dir, sanitize_filename(company_name))
+
+# 1. The internal path Docker uses
+DOCKER_JOBS_DIR = "/app/jobs"
+
+# 2. Dynamically pull the host path from the .env file. 
+# Fallback to a relative Windows path if they didn't provide one.
+WINDOWS_JOBS_DIR = os.getenv("HOST_STORAGE_DIR", ".\\jobs")
+
+def translate_to_windows_path(docker_path: str) -> str:
+    if not docker_path or DOCKER_JOBS_DIR not in docker_path:
+        return docker_path
+        
+    win_path = docker_path.replace(DOCKER_JOBS_DIR, WINDOWS_JOBS_DIR)
+    return win_path.replace("/", "\\")
