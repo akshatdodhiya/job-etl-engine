@@ -26,6 +26,7 @@ tracker.db
 *.db-shm
 jobs/
 data/
+*.bat
 
 # Custom Scripts
 graphify-out/
