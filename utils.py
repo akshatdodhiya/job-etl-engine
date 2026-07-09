@@ -133,7 +133,7 @@ def _ensure_local_model(model_name: str):
     except Exception as e:
         print(f"Ollama connection/pull failed: {e}")
 
-def extract_job_data(text: str, api_key: str, job_url: str = "", models: list = None, mock_mode: bool = False, engine: str = "Gemini", fallback_to_local: bool = True, local_model: str = "qwen2.5:7b") -> JobExtraction:
+def extract_job_data(text: str, api_key: str, job_url: str = "", models: list = None, mock_mode: bool = False, engine: str = "Gemini", fallback_to_local: bool = True, local_model: str = "qwen2.5:7b-instruct-q3_K_M") -> JobExtraction:
     """Extracts job data with unified routing between Gemini API and Local Ollama."""
     
     if mock_mode:
@@ -216,7 +216,8 @@ def extract_job_data(text: str, api_key: str, job_url: str = "", models: list = 
             format=JobExtraction.model_json_schema(),
             options={
                 'temperature': 0.0,
-                'num_ctx': 8192  # Forces Ollama to read the entire document
+                'num_ctx': 2048,  # Hard VRAM ceiling
+                'num_gpu': 99  # Forces Ollama to attempt loading ALL layers into the GPU
             }
         )
         # Parse object and apply hard override if URL was available
@@ -228,7 +229,7 @@ def extract_job_data(text: str, api_key: str, job_url: str = "", models: list = 
     except Exception as e:
         raise Exception(f"Local LLM extraction failed. Last error: {e}")
 
-def find_or_create_company_folder(base_dir: str, company_name: str, api_key: str, models: list = None, engine: str = "Gemini", fallback_to_local: bool = True, local_model: str = "qwen2.5:7b") -> str:
+def find_or_create_company_folder(base_dir: str, company_name: str, api_key: str, models: list = None, engine: str = "Gemini", fallback_to_local: bool = True, local_model: str = "qwen2.5:7b-instruct-q3_K_M") -> str:
     """Finds an existing company folder using LLM-powered fuzzy matching with local fallback."""
     if not os.path.exists(base_dir):
         return os.path.join(base_dir, sanitize_filename(company_name))
