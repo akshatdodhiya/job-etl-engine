@@ -9,8 +9,13 @@ from bs4 import BeautifulSoup
 from google import genai
 import ollama
 from pydantic import BaseModel, Field
+import trafilatura
 
-PLATFORMS = ["LinkedIn", "Indeed", "Glassdoor", "Company Website", "Workday Portal", "Greenhouse", "AngelList / Wellfound", "Referral", "Job Fair", "Recruiter (Outbound)", "Other"]
+PLATFORMS = [
+    "LinkedIn", "Indeed", "Glassdoor", "SimplyHired", "Otta", "Welcome to the Jungle",
+    "ZipRecruiter", "Monster", "Dice", "Greenhouse", "Lever", "Workday Portal",
+    "AngelList / Wellfound", "Company Website", "Referral", "Job Fair", "Recruiter (Outbound)", "Other"
+]
 JOB_TYPES = ["Full-Time", "Part-Time", "Contract", "Contract-to-Hire", "Co-op / Internship", "Freelance"]
 COVER_LETTERS = ["Yes", "No", "Tailored Letter", "Generic Letter"]
 STATUSES = ["Applied", "Phone Screen", "Interview Scheduled", "Technical Test", "Final Round", "Offer Received", "Accepted", "Rejected", "Withdrawn", "Ghosted"]
@@ -32,8 +37,45 @@ def sanitize_filename(name: str, max_len: int = 40) -> str:
     clean = re.sub(r'[\\/*?:"<>|\[\]]', "", name).strip(" .")
     return clean[:max_len].strip(" .")
 
+def _clean_pdf_text(raw_text: str) -> str:
+    """Aggressively sanitizes PDF text to slash token count and remove artifacting."""
+    # Strip non-ASCII characters (often bullet points, weird dashes, or invisible formatting)
+    text = re.sub(r'[^\x00-\x7F]+', ' ', raw_text)
+    # Collapse all repeating whitespace, tabs, and newlines into a single space
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
+
+def _extract_html_cascade(html_content: str | bytes) -> str:
+    """Prioritizes BeautifulSoup to preserve salary data, uses Trafilatura only for bloated pages."""
+    if isinstance(html_content, bytes):
+        try:
+            html_content = html_content.decode('utf-8', errors='ignore')
+        except Exception:
+            pass
+
+    # Attempt 1: Gentle BeautifulSoup (Preserves footers and asides where salaries live)
+    soup = BeautifulSoup(html_content, 'html.parser')
+    for element in soup(["script", "style", "nav", "noscript", "header", "svg"]):
+        element.decompose()
+        
+    bs4_text = soup.get_text(separator='\n', strip=True)
+    
+    # If the page is a normal size, trust BS4 so we don't lose the salary
+    if len(bs4_text) < 25000:
+        return bs4_text
+        
+    # Attempt 2: If the page is a massive 50k+ character mess, fall back to Trafilatura
+    print("Page is too bloated. Falling back to Trafilatura to compress tokens.")
+    clean_text = trafilatura.extract(
+        html_content, 
+        include_links=False, 
+        include_images=False, 
+        no_fallback=True
+    )
+    return clean_text if clean_text else bs4_text[:25000]
+
 def extract_text_from_file_bytes(file_bytes: bytes, filename: str) -> str:
-    """Extracts raw text from PDF, HTML, or MHTML bytes."""
+    """Extracts raw text from PDF, HTML, or MHTML bytes with aggressive LLM sanitization."""
     ext = os.path.splitext(filename)[1].lower()
     
     if ext == '.pdf':
@@ -42,7 +84,7 @@ def extract_text_from_file_bytes(file_bytes: bytes, filename: str) -> str:
             text = ""
             for page in reader.pages:
                 text += page.extract_text() + "\n"
-            return text
+            return _clean_pdf_text(text)
         except Exception as e:
             print(f"PDF extraction error: {e}")
             return ""
@@ -61,23 +103,22 @@ def extract_text_from_file_bytes(file_bytes: bytes, filename: str) -> str:
                         except LookupError:
                             html_content += payload.decode('utf-8', errors='ignore') + " "
                             
-            soup = BeautifulSoup(html_content, 'html.parser')
-            return soup.get_text(separator=' ', strip=True)
+            return _extract_html_cascade(html_content)
         except Exception as e:
             print(f"MHTML extraction error: {e}")
             return ""
             
     elif ext in ['.html', '.htm']:
         try:
-            soup = BeautifulSoup(file_bytes, 'html.parser')
-            return soup.get_text(separator=' ', strip=True)
+            return _extract_html_cascade(file_bytes)
         except Exception as e:
             print(f"HTML extraction error: {e}")
             return ""
             
     else:
         try:
-            return file_bytes.decode('utf-8', errors='ignore')
+            raw_text = file_bytes.decode('utf-8', errors='ignore')
+            return _clean_pdf_text(raw_text) # Reusing PDF cleaner for basic txt fallback
         except Exception as e:
             print(f"Fallback extraction error: {e}")
             return ""
@@ -96,13 +137,12 @@ def extract_job_data(text: str, api_key: str, job_url: str = "", models: list = 
     """Extracts job data with unified routing between Gemini API and Local Ollama."""
     
     if mock_mode:
-        import time
         return JobExtraction(
             company="MockTech Industries",
             role_title="Senior Mock Developer",
             location="Remote",
             job_type="Full-Time",
-            platform="LinkedIn" if "linkedin" in job_url.lower() else "Company Website",
+            platform=get_platform_from_url(job_url) if job_url else "Company Website",
             salary_range="$120,000 - $140,000",
             key_requirements="Python, Streamlit, Docker, SQLite, REST APIs",
             contact_recruiter="Jane Doe",
@@ -130,6 +170,9 @@ def extract_job_data(text: str, api_key: str, job_url: str = "", models: list = 
     
     last_error = None
 
+    # Determine if a deterministic platform can be resolved from url
+    hardcoded_platform = get_platform_from_url(job_url)
+
     # 1. Cloud Execution (Gemini)
     if engine == "Gemini" and api_key:
         client = genai.Client(api_key=api_key)
@@ -147,7 +190,12 @@ def extract_job_data(text: str, api_key: str, job_url: str = "", models: list = 
                         'temperature': 0.1,
                     },
                 )
-                return JobExtraction.model_validate_json(response.text)
+                # Parse object and apply hard override if URL was available
+                extracted = JobExtraction.model_validate_json(response.text)
+                if hardcoded_platform:
+                    extracted.platform = hardcoded_platform
+                return extracted
+                
             except Exception as e:
                 print(f"Gemini {model_name} failed: {e}")
                 last_error = e
@@ -165,11 +213,18 @@ def extract_job_data(text: str, api_key: str, job_url: str = "", models: list = 
         response = ollama.chat(
             model=local_model,
             messages=[{'role': 'user', 'content': prompt}],
-            # Force Ollama to strictly adhere to the Pydantic JSON schema
             format=JobExtraction.model_json_schema(),
-            options={'temperature': 0.0}
+            options={
+                'temperature': 0.0,
+                'num_ctx': 8192  # Forces Ollama to read the entire document
+            }
         )
-        return JobExtraction.model_validate_json(response['message']['content'])
+        # Parse object and apply hard override if URL was available
+        extracted = JobExtraction.model_validate_json(response['message']['content'])
+        if hardcoded_platform:
+            extracted.platform = hardcoded_platform
+        return extracted
+        
     except Exception as e:
         raise Exception(f"Local LLM extraction failed. Last error: {e}")
 
@@ -255,3 +310,44 @@ def translate_to_windows_path(docker_path: str) -> str:
         
     win_path = docker_path.replace(DOCKER_JOBS_DIR, WINDOWS_JOBS_DIR)
     return win_path.replace("/", "\\")
+
+def get_platform_from_url(url: str) -> str | None:
+    """Deterministically identifies the job board platform from a URL."""
+    if not url:
+        return None
+        
+    url_lower = url.lower()
+    
+    # Check URL tracking parameters first (e.g., ?lever-source=Otta)
+    if "source=otta" in url_lower or "otta.com" in url_lower:
+        return "Otta"
+    elif "source=linkedin" in url_lower or "linkedin.com" in url_lower:
+        return "LinkedIn"
+    elif "welcometothejungle.com" in url_lower:
+        return "Welcome to the Jungle"
+        
+    # Core Job Boards
+    elif "indeed.com" in url_lower:
+        return "Indeed"
+    elif "glassdoor.com" in url_lower:
+        return "Glassdoor"
+    elif "simplyhired.com" in url_lower:
+        return "SimplyHired"
+    elif "ziprecruiter.com" in url_lower:
+        return "ZipRecruiter"
+    elif "monster.com" in url_lower:
+        return "Monster"
+    elif "dice.com" in url_lower:
+        return "Dice"
+        
+    # Application Trackers & ATS Systems
+    elif "greenhouse.io" in url_lower:
+        return "Greenhouse"
+    elif "lever.co" in url_lower:
+        return "Lever"
+    elif "workday.com" in url_lower or "myworkdayjobs.com" in url_lower:
+        return "Workday Portal"
+    elif "wellfound.com" in url_lower or "angel.co" in url_lower:
+        return "AngelList / Wellfound"
+    
+    return "Company Website"
